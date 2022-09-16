@@ -375,6 +375,8 @@ pub fn fix_orientation(img: &DynamicImage, path: &Path) -> Option<DynamicImage> 
 pub struct EnqueueResponse {
     /// The final URL for that asset
     pub url: String,
+    /// The final absolute path for that asset
+    pub url_path: String,
     /// The path to the static asset generated
     pub static_path: String,
     /// New image width
@@ -388,12 +390,12 @@ pub struct EnqueueResponse {
 }
 
 impl EnqueueResponse {
-    fn new(url: String, static_path: PathBuf, meta: &ImageMeta, op: &ResizeOp) -> Self {
+    fn new(url: String, url_path: String, static_path: PathBuf, meta: &ImageMeta, op: &ResizeOp) -> Self {
         let static_path = static_path.to_string_lossy().into_owned();
         let (width, height) = op.resize.unwrap_or(meta.size);
         let (orig_width, orig_height) = meta.size;
 
-        Self { url, static_path, width, height, orig_width, orig_height }
+        Self { url, url_path, static_path, width, height, orig_width, orig_height }
     }
 }
 
@@ -403,6 +405,7 @@ impl EnqueueResponse {
 #[derive(Debug)]
 pub struct Processor {
     base_url: String,
+    base_path: String,
     output_dir: PathBuf,
     /// A map of a ImageOps by their stored hash.
     /// Note that this cannot be a HashSet, because hashset handles collisions and we don't want that,
@@ -417,6 +420,7 @@ impl Processor {
         Processor {
             output_dir: base_path.join("static").join(RESIZED_SUBDIR),
             base_url: config.make_permalink(RESIZED_SUBDIR),
+            base_path: config.make_absolute_path(RESIZED_SUBDIR),
             img_ops: HashMap::new(),
             img_ops_collisions: Vec::new(),
         }
@@ -424,6 +428,10 @@ impl Processor {
 
     pub fn set_base_url(&mut self, config: &Config) {
         self.base_url = config.make_permalink(RESIZED_SUBDIR);
+    }
+
+    pub fn set_base_path(&mut self, config: &Config) {
+        self.base_path = config.make_absolute_path(RESIZED_SUBDIR);
     }
 
     pub fn num_img_ops(&self) -> usize {
@@ -448,9 +456,9 @@ impl Processor {
         let op = ResizeOp::new(args, meta.size);
         let format = Format::from_args(&meta, format, quality)?;
         let img_op = ImageOp::new(input_src, input_path, op.clone(), format);
-        let (static_path, url) = self.insert(img_op);
+        let (static_path, url, url_path) = self.insert(img_op);
 
-        Ok(EnqueueResponse::new(url, static_path, &meta, &op))
+        Ok(EnqueueResponse::new(url, url_path, static_path, &meta, &op))
     }
 
     fn insert_with_collisions(&mut self, mut img_op: ImageOp) -> u32 {
@@ -507,13 +515,14 @@ impl Processor {
 
     /// Adds the given operation to the queue but do not process it immediately.
     /// Returns (path in static folder, final URL).
-    fn insert(&mut self, img_op: ImageOp) -> (PathBuf, String) {
+    fn insert(&mut self, img_op: ImageOp) -> (PathBuf, String, String) {
         let hash = img_op.hash;
         let format = img_op.format;
         let collision_id = self.insert_with_collisions(img_op);
         let filename = Self::op_filename(hash, collision_id, format);
         let url = format!("{}{}", self.base_url, filename);
-        (Path::new("static").join(RESIZED_SUBDIR).join(filename), url)
+        let url_path = format!("{}{}", self.base_path, filename);
+        (Path::new("static").join(RESIZED_SUBDIR).join(filename), url, url_path)
     }
 
     /// Remove stale processed images in the output directory

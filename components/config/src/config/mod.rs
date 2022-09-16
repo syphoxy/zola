@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 
 use libs::globset::{Glob, GlobSet, GlobSetBuilder};
 use libs::toml::Value as Toml;
+use libs::url::Url;
 use serde::{Deserialize, Serialize};
 
 use crate::theme::Theme;
@@ -200,6 +201,34 @@ impl Config {
             format!("{}{}{}", self.base_url, path, trailing_bit)
         } else {
             format!("{}/{}{}", self.base_url, path, trailing_bit)
+        }
+    }
+
+    /// Makes an absolute path based on the base url, taking into account that the base url might
+    /// have a trailing slash
+    pub fn make_absolute_path(&self, path: &str) -> String {
+        let trailing_bit =
+            if path.ends_with('/') || path.ends_with(&self.feed_filename) || path.is_empty() {
+                ""
+            } else {
+                "/"
+            };
+
+        let url = Url::parse(&self.base_url).unwrap();
+        let url_path = url.path();
+
+        // Index section with a base url that has a trailing slash
+        if url_path.ends_with('/') && path == "/" {
+            url_path.to_string()
+        } else if path == "/" {
+            // index section with a base url that doesn't have a trailing slash
+            format!("{}/", url_path)
+        } else if url_path.ends_with('/') && path.starts_with('/') {
+            format!("{}{}{}", url_path, &path[1..], trailing_bit)
+        } else if url_path.ends_with('/') || path.starts_with('/') {
+            format!("{}{}{}", url_path, path, trailing_bit)
+        } else {
+            format!("{}/{}{}", url_path, path, trailing_bit)
         }
     }
 
